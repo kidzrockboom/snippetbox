@@ -4,7 +4,6 @@ import (
 	"context"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"richardobaze.com/snippetbox/pkg/models"
 )
@@ -15,7 +14,10 @@ type SnippetModel struct {
 }
 
 // This will insert a new snippet into the database
-func (m *SnippetModel) Insert(title, content, expires string) (pgconn.CommandTag, error) {
+func (m *SnippetModel) Insert(title, content, expires string) (int, error) {
+	// Variable to store the ID of the query
+	var id int
+
 	args := pgx.NamedArgs{
 		"title":   title,
 		"content": content,
@@ -23,24 +25,40 @@ func (m *SnippetModel) Insert(title, content, expires string) (pgconn.CommandTag
 	}
 
 	insertStmt := `
-		INSERT INTO snippets (title, content, created, expires)
+		INSERT INTO public.snippets (title, content, created, expires)
 		VALUES(
 		@title, 
 		@content,
 		TIMEZONE('UTC', NOW()), 
-		DATE_ADD(TIMEZONE('UTC', NOW()), INTERVAL '@expires DAYS')
-		)`
+		DATE_ADD(TIMEZONE('UTC', NOW()), INTERVAL '1 DAYS' * @expires)
+		) RETURNING id;`
 
-	result, err := m.DB.Exec(context.Background(), insertStmt, args)
+	err := m.DB.QueryRow(context.Background(), insertStmt, args).Scan(&id)
 	if err != nil {
-		return pgconn.NewCommandTag("empty"), err
+		return 0, err
 	}
 
-	return result, nil
+	return id, nil
 }
 
 // This will return a specific snippet based on its id
 func (m *SnippetModel) Get(id int) (*models.Snippet, error) {
+	args := pgx.NamedArgs{
+		"id": id,
+	}
+
+	insertStmt := `
+		SELECT id, title, content, created, expires, FROM public.snippets
+		WHERE expires > NOW() AND id = @id
+		);`
+
+	snip := &models.Snippet{}
+
+	err := m.DB.QueryRow(context.Background(), insertStmt, args).Scan()
+	if err != nil {
+		return snip, err
+	}
+
 	return nil, nil
 }
 

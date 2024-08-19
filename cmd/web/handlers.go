@@ -1,10 +1,13 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"html/template"
 	"net/http"
 	"strconv"
+
+	"richardobaze.com/snippetbox/pkg/models"
 )
 
 func (app *application) home(w http.ResponseWriter, r *http.Request) {
@@ -16,6 +19,13 @@ func (app *application) home(w http.ResponseWriter, r *http.Request) {
 		app.notFound(w)
 		return
 	}
+
+	snips, err := app.snippets.Latest()
+	if err != nil {
+		app.serverError(w, err)
+	}
+
+	data := &templateData{Snippets: snips}
 
 	files := []string{
 		"./ui/html/home.page.tmpl",
@@ -36,7 +46,7 @@ func (app *application) home(w http.ResponseWriter, r *http.Request) {
 	// We then use the Execute() method on the template set to write the template
 	// content as the response body. The last parameter to Execute() represents any
 	// dynamic data that we want to pass in, which for now we'll leave as nil
-	err = ts.Execute(w, nil)
+	err = ts.Execute(w, data)
 	if err != nil {
 		app.serverError(w, err)
 	}
@@ -48,7 +58,35 @@ func (app *application) showSnippet(w http.ResponseWriter, r *http.Request) {
 		app.notFound(w)
 		return
 	}
-	fmt.Fprint(w, "Display a specific snippet with the ID %d...", id)
+
+	snip, err := app.snippets.Get(id)
+	if err != nil {
+		if errors.Is(err, models.ErrNoRecord) {
+			app.notFound(w)
+		} else {
+			app.serverError(w, err)
+		}
+		return
+	}
+
+	data := &templateData{Snippet: snip}
+
+	files := []string{
+		"./ui/html/show.page.html",
+		"./ui/html/base.layout.html",
+		"./ui/html/footer.partial.tmpl",
+	}
+
+	ts, err := template.ParseFiles(files...)
+	if err != nil {
+		app.serverError(w, err)
+		return
+	}
+
+	err = ts.Execute(w, data)
+	if err != nil {
+		app.serverError(w, err)
+	}
 }
 
 func (app *application) createSnippet(w http.ResponseWriter, r *http.Request) {
@@ -69,9 +107,9 @@ func (app *application) createSnippet(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	title := "0 snail"
-	content := "0 snail\nClimb Mount Fuji,\nBut slowly, slowly!\n\n- Kobayashi Issa"
-	expires := "2"
+	title := "First autumn morning"
+	content := "First autumn morning\nthe mirror I stare into\nshows my father''s face.\n\n– Murakami Kijo"
+	expires := "7"
 
 	id, err := app.snippets.Insert(title, content, expires)
 	if err != nil {

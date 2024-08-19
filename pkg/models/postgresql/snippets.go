@@ -2,6 +2,8 @@ package postgresql
 
 import (
 	"context"
+	"errors"
+	"fmt"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -48,21 +50,51 @@ func (m *SnippetModel) Get(id int) (*models.Snippet, error) {
 	}
 
 	insertStmt := `
-		SELECT id, title, content, created, expires, FROM public.snippets
+		SELECT id, title, content, created, expires FROM public.snippets
 		WHERE expires > NOW() AND id = @id
-		);`
+		`
 
 	snip := &models.Snippet{}
 
-	err := m.DB.QueryRow(context.Background(), insertStmt, args).Scan()
+	err := m.DB.QueryRow(context.Background(), insertStmt, args).Scan(
+		&snip.ID,
+		&snip.Title,
+		&snip.Content,
+		&snip.Created,
+		&snip.Expires)
 	if err != nil {
-		return snip, err
+		// If the query returns no rows, then row.Scan() will return a
+		// sql.ErrNoRows error. We use the errors.Is() function check for that
+		// error specifically, and return our own models.ErrNoRecord error
+		// instead.
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, models.ErrNoRecord
+		} else {
+			return nil, err
+		}
 	}
 
-	return nil, nil
+	return snip, nil
 }
 
-// This will return the 10 most recently created snippets
-func (m *SnippetModel) Latest() ([]*models.Snippet, error) {
-	return nil, nil
+// This will return up to 10 of the most recently created snippets
+func (m *SnippetModel) Latest() ([]models.Snippet, error) {
+	insertStmt := `
+		SELECT id, title, content, created, expires FROM public.snippets
+		WHERE expires > NOW() ORDER BY created DESC LIMIT 10;
+		`
+
+	rows, err := m.DB.Query(context.Background(), insertStmt)
+	if err != nil {
+		return nil, fmt.Errorf("unable to query users: %w", err)
+	}
+
+	defer rows.Close()
+
+	snips, err := pgx.CollectRows(rows, pgx.RowToStructByName[models.Snippet])
+	if err != nil {
+		return nil, fmt.Errorf("unable to Collect Rows: %w", err)
+	}
+
+	return snips, nil
 }
